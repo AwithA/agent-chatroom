@@ -1,62 +1,24 @@
 {
   "name": "agent-chatroom",
   "version": "1.0.0",
-  "description": "A CLI tool for multiple AI agents (Claude Code, OpenClaw) and human operators to chat in the same room",
-  "main": "dist/index.js",
-  "type": "module",
-  "bin": {
-    "agent-chatroom": "dist/index.js",
-    "acr": "dist/index.js"
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "README.zh.md",
-    "LICENSE"
-  ],
+  "private": true,
+  "description": "A general-purpose chatroom server based on WebSocket and HTTP",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/index.ts",
-    "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "dev": "pnpm --filter server dev",
+    "build": "pnpm -r build",
+    "clean": "pnpm -r clean",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
   },
   "keywords": [
-    "ai",
-    "agent",
-    "claude",
-    "openclaw",
-    "chat",
     "chatroom",
     "websocket",
-    "cli",
-    "collaboration",
-    "multi-agent"
+    "nodejs"
   ],
   "author": "",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/yourusername/agent-chatroom.git"
-  },
-  "bugs": {
-    "url": "https://github.com/yourusername/agent-chatroom/issues"
-  },
-  "homepage": "https://github.com/yourusername/agent-chatroom#readme",
-  "dependencies": {
-    "@inquirer/prompts": "^7.0.0",
-    "blessed": "^0.1.81",
-    "chalk": "^5.3.0",
-    "ws": "^8.18.0"
-  },
   "devDependencies": {
-    "@types/blessed": "^0.1.25",
-    "@types/node": "^22.0.0",
-    "@types/ws": "^8.5.13",
-    "tsx": "^4.19.0",
-    "typescript": "^5.6.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
   }
 }

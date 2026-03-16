@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent Chatroom - Web Client Example</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #f5f5f5;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+      }
+
+      .header {
+        background: #4caf50;
+        color: white;
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #ff5252;
+      }
+
+      .status-dot.connected {
+        background: #4caf50;
+      }
+
+      .main {
+        display: flex;
+        height: 600px;
+      }
+
+      .sidebar {
+        width: 250px;
+        border-right: 1px solid #e0e0e0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .sidebar-header {
+        padding: 15px;
+        border-bottom: 1px solid #e0e0e0;
+        font-weight: bold;
+      }
+
+      .room-list {
+        flex: 1;
+        overflow-y: auto;
+      }
+
+      .room-item {
+        padding: 15px;
+        border-bottom: 1px solid #f0f0f0;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      .room-item:hover {
+        background: #f5f5f5;
+      }
+
+      .room-item.active {
+        background: #e8f5e9;
+      }
+
+      .chat-area {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .chat-header {
+        padding: 15px 20px;
+        border-bottom: 1px solid #e0e0e0;
+        font-weight: bold;
+      }
+
+      .messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .message {
+        max-width: 70%;
+        padding: 10px 15px;
+        border-radius: 8px;
+        word-wrap: break-word;
+      }
+
+      .message.own {
+        align-self: flex-end;
+        background: #4caf50;
+        color: white;
+      }
+
+      .message.other {
+        align-self: flex-start;
+        background: #f0f0f0;
+      }
+
+      .message-sender {
+        font-size: 12px;
+        margin-bottom: 5px;
+        opacity: 0.7;
+      }
+
+      .message-content {
+        font-size: 14px;
+      }
+
+      .input-area {
+        padding: 15px 20px;
+        border-top: 1px solid #e0e0e0;
+        display: flex;
+        gap: 10px;
+      }
+
+      input,
+      button {
+        padding: 10px 15px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+
+      input {
+        flex: 1;
+      }
+
+      button {
+        background: #4caf50;
+        color: white;
+        border: none;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      button:hover {
+        background: #45a049;
+      }
+
+      button:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+
+      .controls {
+        padding: 15px 20px;
+        border-bottom: 1px solid #e0e0e0;
+        display: flex;
+        gap: 10px;
+      }
+
+      .system-message {
+        text-align: center;
+        color: #999;
+        font-size: 12px;
+        padding: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>Agent Chatroom</h1>
+        <div class="status">
+          <div class="status-dot" id="statusDot"></div>
+          <span id="statusText">未连接</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <input type="text" id="nicknameInput" placeholder="输入昵称" />
+        <button id="setNicknameBtn">设置昵称</button>
+        <input type="text" id="roomNameInput" placeholder="群组名称" />
+        <button id="createRoomBtn">创建群组</button>
+        <button id="listRoomsBtn">查看所有群组</button>
+      </div>
+
+      <div class="main">
+        <div class="sidebar">
+          <div class="sidebar-header">我的群组</div>
+          <div class="room-list" id="roomList">
+            <div class="system-message">暂无群组</div>
+          </div>
+        </div>
+
+        <div class="chat-area">
+          <div class="chat-header" id="chatHeader">选择一个群组开始聊天</div>
+          <div class="messages" id="messages"></div>
+          <div class="input-area">
+            <input
+              type="text"
+              id="messageInput"
+              placeholder="输入消息..."
+              disabled
+            />
+            <button id="sendBtn" disabled>发送</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module">
+      // 导入客户端库
+      import { ChatClient } from "./node_modules/@agent-chatroom/client-web/dist/index.js";
+
+      class ChatApp {
+        constructor() {
+          this.client = null;
+          this.userId = null;
+          this.currentRoomId = null;
+          this.rooms = new Map();
+          this.initElements();
+          this.initClient();
+        }
+
+        initElements() {
+          this.statusDot = document.getElementById("statusDot");
+          this.statusText = document.getElementById("statusText");
+          this.nicknameInput = document.getElementById("nicknameInput");
+          this.setNicknameBtn = document.getElementById("setNicknameBtn");
+          this.roomNameInput = document.getElementById("roomNameInput");
+          this.createRoomBtn = document.getElementById("createRoomBtn");
+          this.listRoomsBtn = document.getElementById("listRoomsBtn");
+          this.roomList = document.getElementById("roomList");
+          this.chatHeader = document.getElementById("chatHeader");
+          this.messages = document.getElementById("messages");
+          this.messageInput = document.getElementById("messageInput");
+          this.sendBtn = document.getElementById("sendBtn");
+
+          this.setNicknameBtn.addEventListener("click", () =>
+            this.setNickname(),
+          );
+          this.createRoomBtn.addEventListener("click", () => this.createRoom());
+          this.listRoomsBtn.addEventListener("click", () => this.listRooms());
+          this.sendBtn.addEventListener("click", () => this.sendMessage());
+          this.messageInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") this.sendMessage();
+          });
+        }
+
+        async initClient() {
+          try {
+            this.client = new ChatClient({
+              url: "ws://localhost:3000/ws",
+              autoReconnect: true,
+              reconnectInterval: 3000,
+              maxReconnectAttempts: 10,
+            });
+
+            this.client.on("connect", () => {
+              this.updateStatus(true, "已连接");
+            });
+
+            this.client.on("disconnect", () => {
+              this.updateStatus(false, "已断开");
+            });
+
+            this.client.on("error", (error) => {
+              console.error("Client error:", error);
+            });
+
+            this.client.on("newMessage", (data) => {
+              this.addMessage(
+                data.senderId,
+                data.senderNickname,
+                data.content,
+                data.timestamp,
+              );
+            });
+
+            this.client.on("memberJoined", (data) => {
+              const member = data.nickname || data.userId;
+              this.addSystemMessage(`${member} 加入了群组`);
+            });
+
+            this.client.on("memberLeft", (data) => {
+              const member = data.nickname || data.userId;
+              this.addSystemMessage(`${member} 离开了群组`);
+            });
+
+            this.userId = await this.client.connect();
+            console.log("Connected with userId:", this.userId);
+          } catch (error) {
+            console.error("Failed to initialize client:", error);
+            this.updateStatus(false, "连接失败");
+          }
+        }
+
+        updateStatus(connected, text) {
+          if (connected) {
+            this.statusDot.classList.add("connected");
+            this.statusText.textContent = text || "已连接";
+          } else {
+            this.statusDot.classList.remove("connected");
+            this.statusText.textContent = text || "未连接";
+          }
+        }
+
+        async setNickname() {
+          const nickname = this.nicknameInput.value.trim();
+          if (!nickname || !this.client) return;
+
+          try {
+            await this.client.setNickname(nickname);
+            console.log("Nickname set:", nickname);
+            alert(`昵称已设置为: ${nickname}`);
+          } catch (error) {
+            console.error("Failed to set nickname:", error);
+            alert("设置昵称失败");
+          }
+        }
+
+        async createRoom() {
+          const roomName = this.roomNameInput.value.trim();
+          if (!roomName || !this.client) return;
+
+          try {
+            const room = await this.client.createRoom(roomName);
+            this.addRoomToList(room.roomId, room.name);
+            await this.client.joinRoom(room.roomId);
+            this.switchRoom(room.roomId, room.name);
+            this.roomNameInput.value = "";
+          } catch (error) {
+            console.error("Failed to create room:", error);
+            alert("创建群组失败");
+          }
+        }
+
+        async listRooms() {
+          if (!this.client) return;
+
+          try {
+            const result = await this.client.listRooms();
+            this.roomList.innerHTML = "";
+            if (result.rooms.length === 0) {
+              this.roomList.innerHTML =
+                '<div class="system-message">暂无群组</div>';
+            } else {
+              result.rooms.forEach((room) => {
+                this.addRoomToList(room.roomId, room.name, room.memberCount);
+              });
+            }
+          } catch (error) {
+            console.error("Failed to list rooms:", error);
+            alert("获取群组列表失败");
+          }
+        }
+
+        addRoomToList(roomId, roomName, memberCount) {
+          const roomItem = document.createElement("div");
+          roomItem.className = "room-item";
+          roomItem.textContent = roomName;
+          if (memberCount !== undefined) {
+            roomItem.textContent += ` (${memberCount})`;
+          }
+          roomItem.onclick = async () => {
+            try {
+              await this.client.joinRoom(roomId);
+              this.switchRoom(roomId, roomName);
+            } catch (error) {
+              console.error("Failed to join room:", error);
+              alert("加入群组失败");
+            }
+          };
+
+          if (this.roomList.querySelector(".system-message")) {
+            this.roomList.innerHTML = "";
+          }
+          this.roomList.appendChild(roomItem);
+          this.rooms.set(roomId, roomName);
+        }
+
+        switchRoom(roomId, roomName) {
+          this.currentRoomId = roomId;
+          this.chatHeader.textContent = roomName;
+          this.messages.innerHTML = "";
+          this.messageInput.disabled = false;
+          this.sendBtn.disabled = false;
+
+          this.loadHistory(roomId);
+        }
+
+        async loadHistory(roomId) {
+          if (!this.client) return;
+
+          try {
+            const result = await this.client.getMessageHistory(roomId, 50);
+            result.messages.forEach((msg) => {
+              this.addMessage(
+                msg.senderId,
+                msg.senderNickname,
+                msg.content,
+                msg.timestamp,
+              );
+            });
+          } catch (error) {
+            console.error("Failed to load history:", error);
+          }
+        }
+
+        addMessage(senderId, senderNickname, content, timestamp) {
+          const isOwn = senderId === this.userId;
+          const messageDiv = document.createElement("div");
+          messageDiv.className = `message ${isOwn ? "own" : "other"}`;
+
+          if (!isOwn) {
+            const senderDiv = document.createElement("div");
+            senderDiv.className = "message-sender";
+            senderDiv.textContent = senderNickname || senderId;
+            messageDiv.appendChild(senderDiv);
+          }
+
+          const contentDiv = document.createElement("div");
+          contentDiv.className = "message-content";
+          contentDiv.textContent = content;
+          messageDiv.appendChild(contentDiv);
+
+          this.messages.appendChild(messageDiv);
+          this.messages.scrollTop = this.messages.scrollHeight;
+        }
+
+        addSystemMessage(text) {
+          const messageDiv = document.createElement("div");
+          messageDiv.className = "system-message";
+          messageDiv.textContent = text;
+          this.messages.appendChild(messageDiv);
+          this.messages.scrollTop = this.messages.scrollHeight;
+        }
+
+        async sendMessage() {
+          const content = this.messageInput.value.trim();
+          if (!content || !this.currentRoomId || !this.client) return;
+
+          try {
+            await this.client.sendMessage(this.currentRoomId, content);
+            this.messageInput.value = "";
+          } catch (error) {
+            console.error("Failed to send message:", error);
+            alert("发送消息失败");
+          }
+        }
+      }
+
+      // 初始化应用
+      const app = new ChatApp();
+      window.chatApp = app;
+    </script>
+  </body>
+</html>

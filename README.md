@@ -1,198 +1,222 @@
 # Agent Chatroom
 
-An agent native chat tool designed for multiple AI agents (Claude Code, OpenClaw) and human operators to collaborate in real-time within the same chatroom.
-[中文文档](./README.zh.md)
+一个基于 Node.js 的通用聊天室服务器，支持 WebSocket 实时通信和 HTTP 查询接口。专为 AI Agent（如 OpenClaw、Claude Code）设计的聊天室服务工具。
 
-## Features
+## 项目结构
 
-- **Multi-Agent Collaboration**: Supports Claude Code, OpenClaw, and other AI agents simultaneously
-- **Room Modes**:
-  - `directed` (default): Agents only receive messages @mentioning them
-  - `broadcast`: Everyone receives all messages
-- **TUI Interface**: Terminal UI based on blessed with Tab completion for @mentions
-- **Process Scanning**: Automatically scans for local Claude Code and OpenClaw processes
-- **Claude Code Bridge**: Built-in Claude Code SDK protocol bridge for automatic message forwarding
+```
+agent-chatroom/
+├── packages/
+│   ├── server/          # 主服务器
+│   ├── shared/          # 共享类型和工具
+│   ├── client-web/      # 浏览器端 SDK
+│   └── client-node/     # Node.js SDK
+├── examples/            # 使用示例
+├── doc/                 # 文档
+│   ├── PLAN_ARCH.md    # 架构设计方案
+│   ├── API_WS.md       # WebSocket 协议文档
+│   └── API_HTTP.md     # HTTP 接口文档
+└── design/             # 设计文档
+```
 
-## Installation
+## 快速开始
+
+### 安装依赖
 
 ```bash
-# Install globally
-npm install -g agent-chatroom
-
-# Or use with npx
-npx agent-chatroom
+pnpm install
 ```
 
-## Usage
-
-### Start Server (Default Mode)
+### 启动服务器
 
 ```bash
-# Start server and open TUI
-agent-chatroom
+# 开发模式（自动重启）
+pnpm dev
 
-# Or with options
-agent-chatroom --port 3002 --room myroom
+# 生产模式
+pnpm build
+pnpm --filter server start
 ```
 
-### CLI Options
+服务器启动后：
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-b, --broadcast` | Use broadcast mode | false (directed) |
-| `-p, --port <number>` | Server port | 3001 |
-| `-r, --room <id>` | Room ID | "main" |
-| `-j, --join <url>` | Connect to existing server | - |
-| `-s, --spawn <dir>` | Spawn Claude Code in directory | - |
-| `-h, --help` | Show help | - |
+- HTTP Server: http://localhost:3000
+- WebSocket Server: ws://localhost:3000/ws
+- Health Check: http://localhost:3000/health
+- Console API: http://localhost:3000/api/console
 
-### Examples
+### 运行示例
 
 ```bash
-# 1. Start server (directed mode, default)
-agent-chatroom
+# Node.js 客户端示例
+pnpm --filter agent-chatroom-examples example:node
 
-# 2. Start server (broadcast mode)
-agent-chatroom --broadcast
+# 聊天机器人示例
+pnpm --filter agent-chatroom-examples example:bot
 
-# 3. Specify port and room
-agent-chatroom --port 3002 --room project-a
-
-# 4. Connect to remote server
-agent-chatroom --join ws://192.168.1.100:3001/ws --room main
-
-# 5. Spawn Claude Code and connect to chatroom
-agent-chatroom --spawn /path/to/project
+# 浏览器示例
+# 打开 examples/web-client-example.html
 ```
 
-## How It Works
+## 功能特性
 
-### Architecture
+### 服务器端
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Agent Chatroom                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
-│  │   Operator   │  │    Claude    │  │   OpenClaw   │       │
-│  │   (Human)    │  │    Code      │  │              │       │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘       │
-│         │                 │                 │               │
-│         └─────────────────┼─────────────────┘               │
-│                           │                                 │
-│                    ┌──────┴──────┐                          │
-│                    │  WS Server  │  ← Chat Room Server      │
-│                    │  (JSON-WS)  │                          │
-│                    └─────────────┘                          │
-└─────────────────────────────────────────────────────────────┘
-```
+- ✅ WebSocket 实时通信
+- ✅ 用户管理（唯一 ID、昵称）
+- ✅ 群组管理（创建、加入、离开、删除）
+- ✅ 权限控制（群主、管理员、成员）
+- ✅ 群公告设置
+- ✅ 私聊功能
+- ✅ HTTP 查询接口
+- ✅ 控制台管理接口
+- ✅ 内存存储（预留数据库接口）
 
-### Protocol
+### 客户端 SDK
 
-#### WebSocket Endpoint
-```
-ws://host:port/ws
-```
+- ✅ 浏览器端 SDK（@agent-chatroom/client-web）
+- ✅ Node.js SDK（@agent-chatroom/client-node）
+- ✅ 自动重连机制
+- ✅ 心跳保活
+- ✅ 事件监听
+- ✅ Promise 风格 API
+- ✅ TypeScript 类型支持
 
-#### Client → Server
+## 使用客户端 SDK
 
-```jsonc
-// Join room
-{ "action": "join", "roomId": "room-1", "sender": "alice", "mode": "directed" }
+### Node.js
 
-// Send message
-{ "action": "send", "content": "@bob please check this", "mentions": ["bob"] }
+```typescript
+import { ChatClient } from "@agent-chatroom/client-node";
 
-// Leave room
-{ "action": "leave" }
+const client = new ChatClient({
+  url: "ws://localhost:3000/ws",
+  autoReconnect: true,
+});
 
-// List rooms
-{ "action": "rooms" }
+// 连接服务器
+const userId = await client.connect();
+await client.setNickname("张三");
 
-// Get room info
-{ "action": "info" }
+// 监听消息
+client.on("message", (data) => {
+  console.log(`[${data.senderNickname}]: ${data.content}`);
+});
 
-// Get member list
-{ "action": "members" }
-```
-
-#### Server → Client
-
-```jsonc
-// Connected
-{ "type": "connected", "data": { "clientId": "uuid" } }
-
-// Joined room
-{ "type": "joined", "data": { "room": Room, "messages": ChatMessage[] } }
-
-// New message
-{ "type": "message", "data": ChatMessage }
-
-// User joined
-{ "type": "join", "data": { "clientId": "...", "sender": "bob" } }
-
-// User left
-{ "type": "leave", "data": { "clientId": "...", "sender": "bob" } }
-
-// Error
-{ "type": "error", "data": "reason" }
+// 创建群组并发送消息
+const room = await client.createRoom("技术交流群");
+await client.sendMessage(room.roomId, "Hello, World!");
 ```
 
-### Room Modes
+### 浏览器
 
-#### Directed Mode (Default)
+```typescript
+import { ChatClient } from "@agent-chatroom/client-web";
 
-- Agents only receive messages that @mention them
-- Operators (human users) receive all messages
-- Ideal for multi-agent collaboration with reduced context pollution
+const client = new ChatClient({
+  url: "ws://localhost:3000/ws",
+});
 
-```
-operator: @claude analyze this code
-  → Only claude receives the message
-  → Operator can also see it
-  → openclaw won't receive it
-```
+await client.connect();
+await client.setNickname("李四");
 
-#### Broadcast Mode
+client.on("message", (data) => {
+  displayMessage(data);
+});
 
-- Everyone receives all messages
-- Suitable for small groups requiring full information sharing
-
-## TUI Guide
-
-```
-┌ Messages ─────────────────────────────────────────┐
-│ [12:00:01] openclaw: Analysis complete, 3 issues  │
-│ [12:00:05] operator: @openclaw please fix         │
-│ [12:00:10] operator: @claude take a look too      │
-└───────────────────────────────────────────────────┘
-  [directed] Participants: operator, openclaw, claude
-┌ Type message (Tab=@mention, Enter=send, Esc=quit) ┐
-│ @openclaw                                          │
-└───────────────────────────────────────────────────┘
+const room = await client.createRoom("前端交流群");
+await client.sendMessage(room.roomId, "大家好！");
 ```
 
-| Shortcut | Function            |
-|----------|---------------------|
-|   `Tab`  | @mention completion |
-|  `Enter` | Send message        |
-|   `Esc`  | Exit program        |
-| `Ctrl+C` | Exit program        |
+详细使用说明请查看 [客户端 SDK 文档](./packages/client-web/README.md)。
 
-## Claude Code Integration
+## 技术栈
 
-Agent Chatroom can automatically bridge with Claude Code:
+- **运行环境**: Node.js 18+
+- **语言**: TypeScript
+- **包管理**: pnpm (monorepo)
+- **WebSocket**: ws
+- **HTTP 框架**: Express
+- **构建工具**: TypeScript Compiler
 
-1. **Auto Scan**: Scans for local Claude Code processes on startup
-2. **SDK Bridge**: Communicates via Claude Code's SDK WebSocket protocol
-3. **Message Forwarding**: Automatically forwards @mention messages to Claude Code
-4. **Reply Handling**: Sends Claude Code's replies back to the chatroom
+## 文档
 
-### Manual Claude Code Spawn
+- [架构设计方案](./doc/PLAN_ARCH.md)
+- [WebSocket 协议](./doc/API_WS.md)
+- [HTTP 接口](./doc/API_HTTP.md)
+- [客户端 SDK](./packages/client-web/README.md)
+- [使用示例](./examples/README.md)
+
+## API 示例
+
+### WebSocket API
+
+```typescript
+// 创建群组
+{
+  "type": "createRoom",
+  "requestId": "req_001",
+  "data": { "name": "技术交流群" }
+}
+
+// 发送消息
+{
+  "type": "sendMessage",
+  "requestId": "req_002",
+  "data": {
+    "roomId": "room_xxx",
+    "content": "Hello!"
+  }
+}
+```
+
+### HTTP API
 
 ```bash
-# Spawn new Claude Code instance and connect to chatroom
-agent-chatroom --spawn /path/to/project
+# 获取群组信息
+GET http://localhost:3000/api/rooms/:roomId
+
+# 获取消息历史
+GET http://localhost:3000/api/rooms/:roomId/messages?limit=50
+
+# 系统概览（控制台）
+GET http://localhost:3000/api/console/overview
 ```
+
+## 开发
+
+### 构建所有包
+
+```bash
+pnpm build
+```
+
+### 清理构建产物
+
+```bash
+pnpm clean
+```
+
+### 项目结构说明
+
+- `packages/server`: 服务器核心代码
+  - `core/`: 业务逻辑（UserManager、RoomManager、MessageManager）
+  - `ws/`: WebSocket 服务
+  - `http/`: HTTP 接口
+  - `storage/`: 存储抽象层
+- `packages/shared`: 共享类型定义和工具函数
+- `packages/client-web`: 浏览器端 SDK
+- `packages/client-node`: Node.js SDK
+- `examples/`: 使用示例代码
+
+## 扩展性
+
+系统设计考虑了未来扩展：
+
+- **存储层**: 抽象接口设计，可轻松切换到 Redis/数据库
+- **水平扩展**: 预留 Redis Pub/Sub 支持
+- **消息类型**: 可扩展支持图片、文件等
+- **权限系统**: 可细化权限控制
 
 ## License
 
