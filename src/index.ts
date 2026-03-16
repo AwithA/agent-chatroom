@@ -138,24 +138,38 @@ async function runServerMode(
   const server = new ChatServer(options.port);
   const actualPort = await server.start();
 
-  // 2. 连接到本地服务器
+  // 2. 先连接 WebSocket（不创建 TUI，保持终端可交互）
   const client = new ChatClient(`ws://localhost:${actualPort}/ws`);
-  const tui = new TUI(client);
-
-  // 3. 启动 TUI
   try {
     await client.connect();
-    client.join(options.room, "operator", mode);
-    tui.render();
   } catch (err) {
     console.error(chalk.red(`Failed to connect: ${err}`));
     await server.stop();
     process.exit(1);
   }
 
-  // 4. 如果指定了 --spawn，启动 Claude Code
+  // 3. 在 TUI 接管终端之前，扫描并让用户选择 agent 进程
+  //    此时 inquirer 的 checkbox 可以正常接收键盘输入（空格选中、回车确认）
+  let selectedAgents: AgentProcess[] = [];
+  if (!options.spawn) {
+    console.log(chalk.blue("Scanning for agent processes..."));
+    const agents = await scanAgents();
+
+    if (agents.length > 0) {
+      console.log(chalk.green(`Found ${agents.length} agent process(es)`));
+      selectedAgents = await selectAgents(agents);
+    } else {
+      console.log(chalk.yellow("No agent processes found, starting chatroom directly..."));
+    }
+  }
+
+  // 4. 选择完成后再创建 TUI（此时 blessed 才接管终端）
+  const tui = new TUI(client);
+  client.join(options.room, "operator", mode);
+  tui.render();
+
+  // 5. 如果指定了 --spawn，启动 Claude Code
   if (options.spawn) {
-    console.log(chalk.blue(`Spawning Claude Code in ${options.spawn}...`));
     try {
       const senderName = `claude@${options.spawn}`;
       const session = new ClaudeSession(
@@ -164,72 +178,46 @@ async function runServerMode(
         client
       );
 
-      session.on("ready", () => {
-        console.log(chalk.green("Claude Code connected!"));
-      });
-
       session.on("error", (err) => {
-        console.error(chalk.red(`Claude Code error: ${err}`));
+        tui.addSystemMessage(`Claude Code error: ${err}`, "red");
       });
 
       await session.start();
     } catch (err) {
-      console.error(chalk.red(`Failed to spawn Claude Code: ${err}`));
+      tui.addSystemMessage(`Failed to spawn Claude Code: ${err}`, "red");
     }
   } else {
-    // 5. 扫描现有 agent 进程
-    console.log(chalk.blue("Scanning for agent processes..."));
-    const agents = await scanAgents();
-
-    if (agents.length > 0) {
-      console.log(chalk.green(`Found ${agents.length} agent process(es)`));
-
-      // 6. 让用户选择要连接的 agent
-      const selected = await selectAgents(agents);
-
-      // 7. 为选中的 Claude Code 进程创建桥接
-      for (const agent of selected) {
-        if (agent.type === "claude") {
-          console.log(
-            chalk.blue(`Connecting to Claude Code in ${agent.cwd}...`)
+    // 6. 为选中的 Claude Code 进程创建桥接
+    for (const agent of selectedAgents) {
+      if (agent.type === "claude") {
+        try {
+          const session = new ClaudeSession(
+            agent.cwd,
+            agent.name,
+            client
           );
-          try {
-            const session = new ClaudeSession(
-              agent.cwd,
-              agent.name,
-              client
-            );
 
-            session.on("ready", () => {
-              console.log(
-                chalk.green(`Claude Code (${agent.cwd}) connected!`)
-              );
-            });
+          session.on("ready", () => {
+            tui.addSystemMessage(`Claude Code (${agent.cwd}) connected!`, "green");
+          });
 
-            session.on("error", (err) => {
-              console.error(
-                chalk.red(`Claude Code (${agent.cwd}) error: ${err}`)
-              );
-            });
+          session.on("error", (err) => {
+            tui.addSystemMessage(`Claude Code (${agent.cwd}) error: ${err}`, "red");
+          });
 
-            await session.start();
-          } catch (err) {
-            console.error(
-              chalk.red(
-                `Failed to connect to Claude Code (${agent.cwd}): ${err}`
-              )
-            );
-          }
+          await session.start();
+        } catch (err) {
+          tui.addSystemMessage(
+            `Failed to connect to Claude Code (${agent.cwd}): ${err}`,
+            "red"
+          );
         }
       }
-    } else {
-      console.log(chalk.yellow("No agent processes found"));
     }
   }
 
-  // 8. 处理退出
+  // 7. 处理退出
   process.on("SIGINT", async () => {
-    console.log(chalk.yellow("\nShutting down..."));
     tui.destroy();
     client.disconnect();
     await server.stop();

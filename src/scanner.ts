@@ -146,25 +146,31 @@ export async function scanAgentProcessesUnix(): Promise<AgentProcess[]> {
 }
 
 async function getProcessCwdUnix(pid: number): Promise<string | null> {
+  // macOS: lsof -Fn 输出机器可读格式，正确处理路径中的空格
+  // 输出格式每行以字段类型字母开头：p=pid, f=fd, n=name
+  // 示例：p1234\nfcwd\nn/path/to/dir
   try {
-    // macOS 上使用 lsof
-    const { stdout } = await execAsync(`lsof -p ${pid} | grep cwd`);
-    const parts = stdout.trim().split(/\s+/);
-    // lsof 输出格式: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
-    // NAME 是最后一列
-    if (parts.length > 0) {
-      return parts[parts.length - 1];
+    const { stdout } = await execAsync(
+      `lsof -a -d cwd -p ${pid} -Fn 2>/dev/null`
+    );
+    const nameLine = stdout.split("\n").find((l) => l.startsWith("n"));
+    if (nameLine && nameLine.length > 1) {
+      return nameLine.slice(1); // 去掉前缀 'n'
     }
-    return null;
   } catch {
-    // Linux 上使用 readlink
-    try {
-      const { stdout } = await execAsync(`readlink -f /proc/${pid}/cwd`);
-      return stdout.trim();
-    } catch {
-      return null;
-    }
+    // ignore, try Linux fallback
   }
+
+  // Linux: 使用 readlink /proc/<pid>/cwd
+  try {
+    const { stdout } = await execAsync(`readlink -f /proc/${pid}/cwd`);
+    const cwd = stdout.trim();
+    if (cwd) return cwd;
+  } catch {
+    // ignore
+  }
+
+  return null;
 }
 
 // 根据平台选择合适的扫描函数
