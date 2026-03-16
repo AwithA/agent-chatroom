@@ -1,0 +1,17 @@
+{
+  "name": "agent-chatroom-examples",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "example:node": "tsx node-client-example.ts",
+    "example:bot": "tsx chatbot-example.ts",
+    "test": "tsx test-client.ts"
+  },
+  "dependencies": {
+    "@agent-chatroom/client-node": "workspace:*",
+    "@agent-chatroom/client-web": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0"
+  }
+}
