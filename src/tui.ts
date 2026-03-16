@@ -5,7 +5,7 @@ import type { ChatMessage, Room } from "./types.js";
 export class TUI {
   private screen: blessed.Widgets.Screen;
   private messageBox: blessed.Widgets.ListElement;
-  private inputBox: blessed.Widgets.TextboxElement;
+  private inputBox: blessed.Widgets.BoxElement;
   private statusBar: blessed.Widgets.BoxElement;
   private chatClient: ChatClient;
   private room: Room | null = null;
@@ -13,17 +13,17 @@ export class TUI {
   private mentionIndex = -1;
   private mentionCandidates: string[] = [];
   private isMentionMode = false;
+  // 自己维护当前输入内容，避免 blessed textbox 双重输入 bug
+  private currentInput = "";
 
   constructor(chatClient: ChatClient) {
     this.chatClient = chatClient;
 
-    // 创建主屏幕
     this.screen = blessed.screen({
       smartCSR: true,
       title: "Agent Chatroom",
     });
 
-    // 创建消息显示区域
     this.messageBox = blessed.list({
       parent: this.screen,
       top: 0,
@@ -37,8 +37,6 @@ export class TUI {
       scrollable: true,
       alwaysScroll: true,
       mouse: true,
-      keys: true,
-      vi: true,
       tags: true,
       style: {
         border: {
@@ -50,7 +48,6 @@ export class TUI {
       },
     });
 
-    // 创建状态栏
     this.statusBar = blessed.box({
       parent: this.screen,
       bottom: 2,
@@ -64,8 +61,9 @@ export class TUI {
       },
     });
 
-    // 创建输入框
-    this.inputBox = blessed.textbox({
+    // 输入框只作为展示区域，不使用 inputOnFocus 模式
+    // 这样可以避免 blessed textbox 的双重输入问题
+    this.inputBox = blessed.box({
       parent: this.screen,
       bottom: 0,
       left: 0,
@@ -75,17 +73,10 @@ export class TUI {
         type: "line",
       },
       label: " Type message (Tab=@mention, Enter=send, Esc=quit) ",
-      inputOnFocus: true,
-      mouse: true,
-      keys: true,
+      tags: true,
       style: {
         border: {
           fg: "green",
-        },
-        focus: {
-          border: {
-            fg: "yellow",
-          },
         },
       },
     });
@@ -95,45 +86,130 @@ export class TUI {
   }
 
   private setupEventHandlers(): void {
-    // 输入框提交（按 Enter）
-    this.inputBox.on("submit", () => {
-      const content = this.inputBox.getValue().trim();
-      if (content) {
-        this.chatClient.sendMessage(content);
-        this.inputBox.clearValue();
+    // 所有键盘事件统一在 screen 层处理，避免 textbox readInput 拦截导致的问题
+    this.screen.on("keypress", (_ch, key) => {
+      if (!key) return;
+      const name = key.name || "";
+
+      // 退出
+      if (name === "escape" || (key.ctrl && name === "c")) {
+        this.chatClient.disconnect();
+        process.exit(0);
+        return;
+      }
+
+      // 回车发送消息
+      if (name === "enter" || name === "return") {
+        const content = this.currentInput.trim();
+        if (content) {
+          const mentions = this.extractMentions(content);
+          this.chatClient.sendMessage(
+            content,
+            mentions.length > 0 ? mentions : undefined
+          );
+          this.currentInput = "";
+          this.isMentionMode = false;
+          this.refreshInput();
+        }
+        return;
+      }
+
+      // Tab 触发 @mention 补全
+      if (name === "tab") {
+        this.handleTabCompletion();
+        return;
+      }
+
+      // Page Up / Page Down 滚动消息
+      if (name === "pageup") {
+        this.messageBox.scroll(-10);
         this.screen.render();
+        return;
       }
-      this.inputBox.focus();
-    });
+      if (name === "pagedown") {
+        this.messageBox.scroll(10);
+        this.screen.render();
+        return;
+      }
 
-    // Tab 键处理（@mention 补全）
-    this.inputBox.key("tab", () => {
-      const content = this.inputBox.getValue();
-      const cursorPos = (this.inputBox as unknown as { _cursor: number })._cursor || 0;
+      // 其他按键重置 mention 模式
+      this.isMentionMode = false;
 
-      if (!this.isMentionMode) {
-        // 开始 mention 模式
-        this.startMentionMode(content, cursorPos);
-      } else {
-        // 切换到下一个候选
-        this.cycleMentionCandidate();
+      // 退格删除
+      if (name === "backspace") {
+        if (this.currentInput.length > 0) {
+          // 用扩展运算符正确处理多字节字符（中文等）
+          const chars = [...this.currentInput];
+          chars.pop();
+          this.currentInput = chars.join("");
+          this.refreshInput();
+        }
+        return;
+      }
+
+      // 忽略 ctrl / meta 组合键（C-c 已在上面处理）
+      if (key.ctrl || key.meta) return;
+
+      // 普通可打印字符（包括中文）
+      if (_ch) {
+        this.currentInput += _ch;
+        this.refreshInput();
       }
     });
+  }
 
-    // Esc 键退出
-    this.screen.key("escape", () => {
-      this.chatClient.disconnect();
-      process.exit(0);
-    });
+  // 刷新输入框显示，末尾加一个块状光标
+  private refreshInput(): void {
+    this.inputBox.setContent(this.currentInput + "{inverse} {/inverse}");
+    this.screen.render();
+  }
 
-    // Ctrl+C 退出
-    this.screen.key("C-c", () => {
-      this.chatClient.disconnect();
-      process.exit(0);
-    });
+  // 从消息内容中提取 @成员 列表
+  private extractMentions(content: string): string[] {
+    const mentions: string[] = [];
+    const regex = /@(\S+)/g;
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      const name = match[1];
+      if (this.members.includes(name)) {
+        mentions.push(name);
+      }
+    }
+    return mentions;
+  }
 
-    // 输入框聚焦
-    this.inputBox.focus();
+  // Tab 键 @mention 补全
+  private handleTabCompletion(): void {
+    if (this.members.length === 0) return;
+
+    if (!this.isMentionMode) {
+      // 首次按 Tab，进入 mention 模式
+      this.isMentionMode = true;
+      this.mentionIndex = 0;
+      this.mentionCandidates = [...this.members];
+    } else {
+      // 继续按 Tab，轮换候选人
+      this.mentionIndex =
+        (this.mentionIndex + 1) % this.mentionCandidates.length;
+    }
+
+    const candidate = this.mentionCandidates[this.mentionIndex];
+    const lastAtIndex = this.currentInput.lastIndexOf("@");
+
+    if (lastAtIndex !== -1) {
+      // 替换最后一个 @ 之后的内容为当前候选
+      this.currentInput =
+        this.currentInput.substring(0, lastAtIndex + 1) + candidate + " ";
+    } else {
+      // 没有 @，在末尾追加
+      const sep =
+        this.currentInput.length > 0 && !this.currentInput.endsWith(" ")
+          ? " "
+          : "";
+      this.currentInput = this.currentInput + sep + "@" + candidate + " ";
+    }
+
+    this.refreshInput();
   }
 
   private setupChatClientListeners(): void {
@@ -142,7 +218,6 @@ export class TUI {
       this.updateStatusBar();
       this.addSystemMessage(`Joined room: ${data.room.id} [${data.room.mode}]`);
 
-      // 显示历史消息
       for (const msg of data.messages) {
         this.addMessage(msg);
       }
@@ -178,65 +253,11 @@ export class TUI {
     });
   }
 
-  private startMentionMode(content: string, cursorPos: number): void {
-    if (this.members.length === 0) return;
-
-    // 找到当前正在输入的 @mention
-    const beforeCursor = content.substring(0, cursorPos);
-    const afterCursor = content.substring(cursorPos);
-    const lastAtIndex = beforeCursor.lastIndexOf("@");
-
-    if (lastAtIndex === -1) {
-      // 没有 @，在光标位置插入 @
-      const newContent = beforeCursor + "@" + afterCursor;
-      this.inputBox.setValue(newContent);
-      (this.inputBox as unknown as { _cursor: number })._cursor = cursorPos + 1;
-    }
-
-    this.isMentionMode = true;
-    this.mentionIndex = 0;
-    this.mentionCandidates = [...this.members];
-    this.showMentionCandidate();
-  }
-
-  private cycleMentionCandidate(): void {
-    if (this.mentionCandidates.length === 0) return;
-
-    this.mentionIndex =
-      (this.mentionIndex + 1) % this.mentionCandidates.length;
-    this.showMentionCandidate();
-  }
-
-  private showMentionCandidate(): void {
-    if (this.mentionCandidates.length === 0) return;
-
-    const candidate = this.mentionCandidates[this.mentionIndex];
-    const content = this.inputBox.getValue();
-    const cursorPos = (this.inputBox as unknown as { _cursor: number })._cursor || 0;
-    const beforeCursor = content.substring(0, cursorPos);
-    const afterCursor = content.substring(cursorPos);
-
-    // 找到最后一个 @ 的位置
-    const lastAtIndex = beforeCursor.lastIndexOf("@");
-    if (lastAtIndex === -1) return;
-
-    // 替换 @ 后的内容为候选者
-    const beforeAt = beforeCursor.substring(0, lastAtIndex + 1);
-    const newContent = beforeAt + candidate + " " + afterCursor;
-    const newCursorPos = beforeAt.length + candidate.length + 1;
-
-    this.inputBox.setValue(newContent);
-    (this.inputBox as unknown as { _cursor: number })._cursor = newCursorPos;
-    this.screen.render();
-  }
-
   private updateStatusBar(): void {
     if (this.room) {
       const mode = this.room.mode;
       const participants = this.members.join(", ") || "-";
-      this.statusBar.setContent(
-        `[${mode}] Participants: ${participants}`
-      );
+      this.statusBar.setContent(`[${mode}] Participants: ${participants}`);
     } else {
       this.statusBar.setContent("[disconnected] Participants: -");
     }
@@ -250,11 +271,14 @@ export class TUI {
       second: "2-digit",
     });
 
-    const mentions = message.mentions ? ` [${message.mentions.join(", ")}]` : "";
+    const mentions = message.mentions
+      ? ` [${message.mentions.join(", ")}]`
+      : "";
     const line = `[${time}] {bold}${message.sender}{/bold}${mentions}: ${message.content}`;
 
     this.messageBox.addItem(line);
-    const children = (this.messageBox as unknown as { children: unknown[] }).children;
+    const children = (this.messageBox as unknown as { children: unknown[] })
+      .children;
     this.messageBox.scrollTo(children.length);
     this.screen.render();
   }
@@ -268,12 +292,14 @@ export class TUI {
 
     const line = `[${time}] {${color}-fg}{bold}* System *{/bold}{/${color}-fg}: ${text}`;
     this.messageBox.addItem(line);
-    const children = (this.messageBox as unknown as { children: unknown[] }).children;
+    const children = (this.messageBox as unknown as { children: unknown[] })
+      .children;
     this.messageBox.scrollTo(children.length);
     this.screen.render();
   }
 
   public render(): void {
+    this.refreshInput();
     this.screen.render();
   }
 
