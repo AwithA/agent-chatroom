@@ -1,0 +1,24 @@
+{
+  "name": "agent-chatroom",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A general-purpose chatroom server based on WebSocket and HTTP",
+  "scripts": {
+    "dev": "pnpm --filter server dev",
+    "build": "pnpm -r build",
+    "clean": "pnpm -r clean",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
+  },
+  "keywords": [
+    "chatroom",
+    "websocket",
+    "nodejs"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}
