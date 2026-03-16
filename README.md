@@ -55,7 +55,7 @@ pnpm --filter agent-chatroom-examples example:node
 pnpm --filter agent-chatroom-examples example:bot
 
 # 浏览器示例
-# 打开 examples/web-client-example.html
+pnpm --filter chatroom-web-example run dev:web
 ```
 
 ## 功能特性
