@@ -1,0 +1,46 @@
+# Source files
+src/
+*.ts
+!dist/*.d.ts
+
+# Development
+tsconfig.json
+.eslintrc
+.prettierrc
+
+# Tests
+test/
+*.test.js
+*.spec.js
+test.mjs
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# CI
+.github/
+.travis.yml
+.gitlab-ci.yml
+
+# Documentation (keep README files)
+guide.md
+
+# Build tools
+node_modules/
+.npm/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
